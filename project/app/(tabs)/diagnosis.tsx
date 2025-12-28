@@ -15,6 +15,7 @@ import { useLanguage } from '@/context/LanguageContext';
 import { useCamera } from '@/hooks/useCamera';
 import { useImageUpload } from '@/hooks/useImageUpload';
 import { CameraView } from 'expo-camera';
+import { analyzeCropImage, isGeminiConfigured, CropDiagnosisResult } from '@/services/gemini';
 
 export default function DiagnosisScreen() {
   const { t } = useLanguage();
@@ -22,7 +23,7 @@ export default function DiagnosisScreen() {
   const { uploading, uploadProgress, uploadImage, selectImage } = useImageUpload();
   
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [diagnosisResult, setDiagnosisResult] = useState<any>(null);
+  const [diagnosisResult, setDiagnosisResult] = useState<CropDiagnosisResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
 
@@ -40,34 +41,60 @@ export default function DiagnosisScreen() {
   ];
 
   const mockDiagnose = async () => {
+    if (!selectedImage) return;
+    
     setIsAnalyzing(true);
     try {
-      // Simulate AI analysis
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      setDiagnosisResult({
-        condition: 'Leaf Spot Disease',
-        severity: 'Moderate',
-        confidence: 87,
-        treatment: {
-          organic: [
-            'Apply neem oil spray twice weekly',
-            'Improve air circulation around plants',
-            'Remove infected leaves and dispose properly',
+      // Check if Gemini is configured
+      if (isGeminiConfigured()) {
+        // Fetch image and convert to base64 for Gemini API
+        const response = await fetch(selectedImage);
+        const blob = await response.blob();
+        
+        // Convert blob to base64
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const result = reader.result as string;
+            // Remove the data URL prefix to get just the base64 string
+            const base64Data = result.split(',')[1];
+            resolve(base64Data);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        
+        const result = await analyzeCropImage(base64);
+        setDiagnosisResult(result);
+      } else {
+        // Fallback to mock data when Gemini API is not configured
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        setDiagnosisResult({
+          condition: 'Leaf Spot Disease',
+          severity: 'Moderate',
+          confidence: 87,
+          treatment: {
+            organic: [
+              'Apply neem oil spray twice weekly',
+              'Improve air circulation around plants',
+              'Remove infected leaves and dispose properly',
+            ],
+            chemical: [
+              'Apply copper-based fungicide',
+              'Use systemic fungicide (Propiconazole)',
+              'Ensure proper drainage',
+            ],
+          },
+          prevention: [
+            'Maintain proper plant spacing',
+            'Avoid overhead watering',
+            'Apply balanced fertilizer',
           ],
-          chemical: [
-            'Apply copper-based fungicide',
-            'Use systemic fungicide (Propiconazole)',
-            'Ensure proper drainage',
-          ],
-        },
-        prevention: [
-          'Maintain proper plant spacing',
-          'Avoid overhead watering',
-          'Apply balanced fertilizer',
-        ],
-      });
+        });
+      }
     } catch (error) {
+      console.error('Diagnosis error:', error);
       Alert.alert(t('error_occurred'), t('analyzing_image'));
     } finally {
       setIsAnalyzing(false);
